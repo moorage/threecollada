@@ -13,13 +13,6 @@
 				font-size: 13px;
 			}
 
-			#info {
-				position: absolute;
-				top: 0px; width: 100%;
-				padding: 5px;
-				text-align: center;
-			}
-
 			a {
 				text-decoration: none;
 			}
@@ -27,17 +20,58 @@
 			a:hover {
 			}
 
+			#editor-box {
+				width: 65%;
+				height: 80%;
+				border:1px solid #eee;
+			}
+			#preview-pane {
+				width:34%;
+			}
+
+			#hires-box,
+			#depth-box {
+				width: 50%;
+			}
+
 		</style>
 	</head>
 	<body>
 
-		<div id="container"></div>
+		<canvas id="c"></canvas>
+
+		<div id="editor-box">
+			<h2>Editor</h2>
+			<div id="editor"></div>
+		</div>
+		<div id="preview-pane">
+			<div id="hires-box">
+				<h2>Hi-Res</h2>
+				<div id="hires"></div>
+			</div>
+			<div id="depth-box">
+				<h2>Depth</h2>
+				<div id="depth"></div>
+			</div>
+			<div id="segmentation-masks-box">
+				<h2>Component Masks</h2>
+				<div id="segmentation-masks">
+
+				<script id="segmentation-mask-template" type="notjs">
+					<div class="segmentation-mask">
+						<div class="description">'$' Mask</div>
+						<div class="scene"></div>
+					</div>
+				</script>
+				</div>
+			</div>
+		</div>
 
 		<script src="//threejs.org/build/three.js"></script>
 
 		<script src="//threejs.org/examples/js/Detector.js"></script>
-		<script src="//threejs.org/examples/js/Octree.js"></script>
-		<script src="//threejs.org/examples/js/controls/TrackballControls.js"></script>
+		<script src="//threejs.org/examples/js/Octree.js"></script> <!-- highlight meshes -->
+		<script src="//threejs.org/examples/js/controls/OrbitControls.js"></script>
 		<script src="//threejs.org/examples/js/libs/stats.min.js"></script>
     <script src="//threejs.org/examples/js/loaders/ColladaLoader.js"></script>
 
@@ -75,8 +109,28 @@
 		</script>
 
 		<script>
-
 			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+		</script>
+
+
+		<script>
+
+		window.onload = Common.init;
+
+		var Common = {
+			Canvas: document.getElementById( 'c' ),
+
+			init: function() {
+				Editor.init();
+			}
+		};
+
+		var Editor = {
+			init: function() {
+
+			}
+		};
+
 
 			var camera, scene, renderer, dirLight, dirLightHeper, hemiLight;
 			var mixers = [];
@@ -97,8 +151,6 @@
 			var raycaster = new THREE.Raycaster();
 			var mouse = new THREE.Vector2();
 			var intersected;
-
-			var clock = new THREE.Clock();
 
 
 		  var loadedMaterials = {};
