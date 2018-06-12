@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>test collada annotator</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background-color: #fff;
+				color: #444;
+				margin: 0px;
+				overflow: hidden;
+				font-size: 13px;
+			}
+
+			#info {
+				position: absolute;
+				top: 0px; width: 100%;
+				padding: 5px;
+				text-align: center;
+			}
+
+			a {
+				text-decoration: none;
+			}
+
+			a:hover {
+			}
+
+		</style>
+	</head>
+	<body>
+
+		<div id="container"></div>
+
+		<script src="//threejs.org/build/three.js"></script>
+
+		<script src="//threejs.org/examples/js/Detector.js"></script>
+		<script src="//threejs.org/examples/js/Octree.js"></script>
+		<script src="//threejs.org/examples/js/controls/TrackballControls.js"></script>
+		<script src="//threejs.org/examples/js/libs/stats.min.js"></script>
+    <script src="//threejs.org/examples/js/loaders/ColladaLoader.js"></script>
+
+		<script type="x-shader/x-vertex" id="vertexShader">
+
+			varying vec3 vWorldPosition;
+
+			void main() {
+
+				vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+				vWorldPosition = worldPosition.xyz;
+
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+			}
+
+		</script>
+
+		<script type="x-shader/x-fragment" id="fragmentShader">
+
+			uniform vec3 topColor;
+			uniform vec3 bottomColor;
+			uniform float offset;
+			uniform float exponent;
+
+			varying vec3 vWorldPosition;
+
+			void main() {
+
+				float h = normalize( vWorldPosition + offset ).y;
+				gl_FragColor = vec4( mix( bottomColor, topColor, max( pow( max( h , 0.0), exponent ), 0.0 ) ), 1.0 );
+
+			}
+
+		</script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var camera, scene, renderer, dirLight, dirLightHeper, hemiLight;
+			var mixers = [];
+			var stats;
+
+			var octree;
+			var objects = [];
+			var objectsSearch = [];
+			var totalFaces = 0;
+
+
+			var baseColor = 0x333333;
+			var intersectColor = 0x00D66B;
+			var searchDelay = 1;
+			var searchInterval = 0;
+			var useOctree = false;
+
+			var raycaster = new THREE.Raycaster();
+			var mouse = new THREE.Vector2();
+			var intersected;
+
+			var clock = new THREE.Clock();
+
+
+		  var loadedMaterials = {};
+			var hoverMaterial = new THREE.MeshLambertMaterial({
+		    opacity: 0.75
+		  });
+
+			init();
+			animate();
+
+			function init() {
+
+				var container = document.getElementById( 'container' );
+
+				camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 5000 );
+				camera.position.set( 0, 0, 250 );
+
+				scene = new THREE.Scene();
+				scene.background = new THREE.Color().setHSL( 0.6, 0, 1 );
+				scene.fog = new THREE.Fog( scene.background, 1, 5000 );
+				scene.add( new THREE.GridHelper( 1000, 10 ) );
+
+
+				// create octree
+				octree = new THREE.Octree( {
+					// uncomment below to see the octree (may kill the fps)
+					//scene: scene,
+					// when undeferred = true, objects are inserted immediately
+					// instead of being deferred until next octree.update() call
+					// this may decrease performance as it forces a matrix update
+					undeferred: false,
+					// set the max depth of tree
+					depthMax: Infinity,
+					// max number of objects before nodes split or merge
+					objectsThreshold: 8,
+					// percent between 0 and 1 that nodes will overlap each other
+					// helps insert objects that lie over more than one node
+					overlapPct: 0.15
+				} );
+
+				// LIGHTS
+
+				hemiLight = new THREE.HemisphereLight( 0xffffff, 0xffffff, 0.6 );
+				hemiLight.color.setHSL( 0.6, 1, 0.6 );
+				hemiLight.groundColor.setHSL( 0.095, 1, 0.75 );
+				hemiLight.position.set( 0, 50, 0 );
+				scene.add( hemiLight );
+
+				//
+
+				dirLight = new THREE.DirectionalLight( 0xffffff, 1 );
+				dirLight.color.setHSL( 0.1, 1, 0.95 );
+				dirLight.position.set( -1, 1.75, 1 );
+				dirLight.position.multiplyScalar( 30 );
+				scene.add( dirLight );
+
+				dirLight.castShadow = true;
+
+				dirLight.shadow.mapSize.width = 2048;
+				dirLight.shadow.mapSize.height = 2048;
+
+				var d = 50;
+
+				dirLight.shadow.camera.left = -d;
+				dirLight.shadow.camera.right = d;
+				dirLight.shadow.camera.top = d;
+				dirLight.shadow.camera.bottom = -d;
+
+				dirLight.shadow.camera.far = 3500;
+				dirLight.shadow.bias = -0.0001;
+
+
+				// GROUND
+
+				var groundGeo = new THREE.PlaneBufferGeometry( 10000, 10000 );
+				var groundMat = new THREE.MeshPhongMaterial( { color: 0xffffff, specular: 0x050505 } );
+				groundMat.color.setHSL( 0.095, 1, 0.75 );
+
+				var ground = new THREE.Mesh( groundGeo, groundMat );
+				ground.rotation.x = -Math.PI/2;
+				ground.position.y = -33;
+				scene.add( ground );
+
+				ground.receiveShadow = true;
+
+				// SKYDOME
+
+				var vertexShader = document.getElementById( 'vertexShader' ).textContent;
+				var fragmentShader = document.getElementById( 'fragmentShader' ).textContent;
+				var uniforms = {
+					topColor:    { value: new THREE.Color( 0x0077ff ) },
+					bottomColor: { value: new THREE.Color( 0xffffff ) },
+					offset:      { value: 33 },
+					exponent:    { value: 0.6 }
+				};
+				uniforms.topColor.value.copy( hemiLight.color );
+
+				scene.fog.color.copy( uniforms.bottomColor.value );
+
+				var skyGeo = new THREE.SphereBufferGeometry( 4000, 32, 15 );
+				var skyMat = new THREE.ShaderMaterial( { vertexShader: vertexShader, fragmentShader: fragmentShader, uniforms: uniforms, side: THREE.BackSide } );
+
+				var sky = new THREE.Mesh( skyGeo, skyMat );
+				scene.add( sky );
+
+				// MODEL
+
+			  var loader = new THREE.ColladaLoader();
+        loader.load( './model.dae', function ( collada ) {
+
+  				dae = collada.scene;
+
+  				dae.traverse( function ( child ) {
+
+  					if ( child instanceof THREE.Mesh ) {
+
+  						// model does not have normals
+  						// child.material.flatShading = true;
+	          	console.log(child);
+							var mesh = child;
+							if (mesh.material.type === "MeshFaceMaterial") {
+				        mesh.material = mesh.material.materials[1];
+				      }
+				      loadedMaterials[mesh.uuid] = mesh.material;
+
+							octree.add( child, { useFaces: false } );
+
+							objects.push( child );
+  					}
+
+  				} );
+
+  				dae.scale.x = dae.scale.y = dae.scale.z = 2.0;
+  				dae.updateMatrix();
+
+  				// kinematics = collada.kinematics;
+    			scene.add( dae );
+
+  			} );
+
+				// RENDERER
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+				renderer.gammaInput = true;
+				renderer.gammaOutput = true;
+
+				renderer.shadowMap.enabled = true;
+
+
+
+				// controls
+				controls = new THREE.TrackballControls( camera );
+				controls.rotateSpeed = 1.0;
+				controls.zoomSpeed = 1.2;
+				controls.panSpeed = 0.8;
+				controls.noZoom = false;
+				controls.noPan = false;
+				controls.staticMoving = true;
+				controls.dynamicDampingFactor = 0.3;
+
+				// performance monitor
+
+				stats = new Stats();
+				container.appendChild( stats.dom );
+
+				//
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				renderer.domElement.addEventListener( 'mousemove', onDocumentMouseMove, false );
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+
+			//
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				render();
+
+  			stats.update();
+			}
+
+			function render() {
+				controls.update();
+
+				renderer.render( scene, camera );
+
+				octree.update();
+			}
+
+
+			function onDocumentMouseMove( event ) {
+				event.preventDefault();
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+				raycaster.setFromCamera( mouse, camera );
+				var octreeObjects;
+				var numObjects;
+				var numFaces = 0;
+				var intersections;
+				if ( useOctree ) {
+					octreeObjects = octree.search( raycaster.ray.origin, raycaster.ray.far, true, raycaster.ray.direction );
+					intersections = raycaster.intersectOctreeObjects( octreeObjects );
+					numObjects = octreeObjects.length;
+					for ( var i = 0, il = numObjects; i < il; i++ ) {
+						numFaces += octreeObjects[ i ].faces.length;
+					}
+				}
+				else {
+					intersections = raycaster.intersectObjects( objects );
+					numObjects = objects.length;
+					numFaces = totalFaces;
+				}
+				if ( intersections.length > 0 ) {
+					if ( intersected != intersections[ 0 ].object ) {
+						if ( intersected ) {
+							intersected.material = loadedMaterials[intersected.uuid];
+						}
+						intersected = intersections[ 0 ].object;
+						intersected.material = hoverMaterial;
+						intersected.material.color.setHex( intersectColor );
+					}
+					document.body.style.cursor = 'pointer';
+				}
+				else if ( intersected ) {
+					intersected.material = loadedMaterials[intersected.uuid];
+					intersected = null;
+					document.body.style.cursor = 'auto';
+				}
+				// update tracker
+				// console.log( ( useOctree ? 'Octree search' : 'Search without octree' ) + ' using infinite ray from camera found [ ' + numObjects + ' / ' + objects.length + ' ] objects, [ ' + numFaces + ' / ' + totalFaces + ' ] faces, and [ ' + intersections.length + ' ] intersections.');
+			}
+		</script>
+	</body>
+</html>
