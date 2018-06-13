@@ -63,14 +63,16 @@
 				width:100%;
 			}
 
-			#preview-pane .scene {
-				height: 1.2in;
+			#preview-pane .canvas-parent {
+				height: 3in;
 			}
 
 			#editor {
 				height: 5in; // FIXME
 				width: 100%;
 			}
+
+			canvas { position:relative; height: 100%; width: 100%; }
 
 
 		</style>
@@ -80,11 +82,15 @@
 		<div id="preview-pane">
 			<div id="hires-box">
 				<h2>Hi-Res</h2>
-				<canvas id="hires"></canvas>
+				<div id="hires-parent" class="canvas-parent">
+					<canvas id="hires"></canvas>
+				</div>
 			</div>
 			<div id="depth-box">
 				<h2>Depth</h2>
-				<canvas id="depth"></canvas>
+				<div id="depth-parent" class="canvas-parent">
+					<canvas id="depth"></canvas>
+				</div>
 			</div>
 			<div id="segmentation-masks-box">
 				<h2>Component Masks</h2>
@@ -93,7 +99,9 @@
 				<script id="segmentation-mask-template" type="notjs">
 					<div class="segmentation-mask">
 						<div class="description">'$' Mask</div>
-						<canvas></canvas>
+						<div class="canvas-parent">
+							<canvas></canvas>
+						</div>
 					</div>
 				</script>
 				</div>
@@ -102,7 +110,7 @@
 
 		<div id="editor-box">
 			<h2>Editor</h2>
-			<canvas id="editor"></canvas>
+			<div id="editor-parent" class="canvas-parent"><canvas id="editor"></canvas></div>
 		</div>
 
 		<div id="stats-box"></div>
@@ -112,6 +120,7 @@
 		<script src="//threejs.org/examples/js/Detector.js"></script>
 		<script src="//threejs.org/examples/js/Octree.js"></script> <!-- highlight meshes -->
 		<script src="//threejs.org/examples/js/controls/OrbitControls.js"></script>
+		<script src="//threejs.org/examples/js/shaders/SSAOShader.js"></script>
 		<script src="//threejs.org/examples/js/libs/stats.min.js"></script>
     <script src="//threejs.org/examples/js/loaders/ColladaLoader.js"></script>
 
@@ -133,6 +142,7 @@
 				this.Renderer.setSize( window.innerWidth, window.innerHeight );
 				this.Renderer.shadowMap.enabled = true;
 				Editor.Init();
+				Depth.Init();
 
 				this.stats = new Stats();
 				document.getElementById('stats-box').appendChild(this.stats.dom);
@@ -145,6 +155,7 @@
 
 			Render: function() {
 				Editor.Render(this.Renderer);
+				Depth.Render(this.Renderer);
 			},
 
 			Animate: function() {
@@ -156,7 +167,14 @@
 			OnWindowResize: function(ev) {
 				this.Renderer.setSize( window.innerWidth, window.innerHeight );
 				Editor.OnWindowResize();
+				Depth.OnWindowResize();
+			},
 
+			DefaultWindowResize: function(canv, cam) {
+				canv.width = canv.clientWidth * window.devicePixelRatio;
+				canv.height = canv.clientHeight * window.devicePixelRatio;
+				cam.aspect = canv.clientWidth / canv.clientHeight;
+				cam.updateProjectionMatrix();
 			}
 		};
 
@@ -235,10 +253,7 @@
 			},
 
 			OnWindowResize: function() {
-				this.Canvas.width = this.Canvas.clientWidth * window.devicePixelRatio;
-				this.Canvas.height = this.Canvas.clientHeight * window.devicePixelRatio;
-				this.Camera.aspect = this.Canvas.clientWidth / this.Canvas.clientHeight;
-				this.Camera.updateProjectionMatrix();
+				Common.DefaultWindowResize(this.Canvas, this.Camera);
 			},
 
 			OnMouseMove: function(ev) {
@@ -304,7 +319,145 @@
 				});
 			}
 		};
+
+
+		var Depth = {
+			Canvas: null,
+			DrawingContext: null,
+			Scene: null,
+			Model: null,
+			Camera: null,
+			Renderer: null,
+			DepthRenderer: null,
+			plainMaterial: null,
+			postProcCam: null,
+			postProcScene: null,
+
+			Init: function() {
+
+
+
+				this.Canvas = document.getElementById('depth');
+				this.Canvas.width = this.Canvas.clientWidth * window.devicePixelRatio;
+				this.Canvas.height = this.Canvas.clientHeight * window.devicePixelRatio;
+				this.DrawingContext = this.Canvas.getContext( '2d' );
+
+
+				this.Scene = new THREE.Scene();
+				this.Scene.background = new THREE.Color( 0x000000 );
+
+				this.Camera = new THREE.PerspectiveCamera( 70, this.Canvas.clientWidth / this.Canvas.clientHeight, 1, 10000 );
+				this.Camera.position.set( 450, 450, 450 );
+				this.Scene.add( this.Camera );
+
+
+				if ( !Common.Renderer.extensions.get( 'WEBGL_depth_texture' ) ) {
+					alert("Sorry, your browser doesn't support `WEBGL_depth_texture`.  Please download the latest version of Chrome or Firefox.");
+				}
+
+				// Create a multi render target with Float buffers
+				this.DepthRenderer = new THREE.WebGLRenderTarget( this.Canvas.clientWidth, this.Canvas.clientHeight );
+				this.DepthRenderer.texture.format = THREE.RGBFormat;
+				this.DepthRenderer.texture.minFilter = THREE.NearestFilter;
+				this.DepthRenderer.texture.magFilter = THREE.NearestFilter;
+				this.DepthRenderer.texture.generateMipmaps = false;
+				this.DepthRenderer.stencilBuffer = false;
+				this.DepthRenderer.depthBuffer = true;
+				this.DepthRenderer.depthTexture = new THREE.DepthTexture();
+				this.DepthRenderer.depthTexture.type = THREE.UnsignedShortType;
+
+				// Setup post processing stage
+				this.postProcCam = new THREE.OrthographicCamera( -1, 1, 1, -1, 0, 1 );
+				var postProcressingQuad = new THREE.Mesh(
+					new THREE.PlaneBufferGeometry( 2, 2 ),
+					new THREE.ShaderMaterial({
+						vertexShader: document.getElementById('depth-postprocessing-vert').textContent.trim(),
+						fragmentShader: document.getElementById('depth-postprocessing-frag').textContent.trim(),
+						uniforms: {
+							cameraNear: { value: this.Camera.near },
+							cameraFar:  { value: this.Camera.far },
+							tDiffuse:   { value: this.DepthRenderer.texture },
+							tDepth:     { value: this.DepthRenderer.depthTexture }
+						}
+					})
+				);
+				this.postProcScene = new THREE.Scene();
+				this.postProcScene.add( postProcressingQuad );
+
+				this.plainMaterial = new THREE.MeshBasicMaterial( { color: 'blue' } );
+				this.loadModel();
+			},
+
+			Render: function(renderer) {
+				renderer.setViewport( 0, 0, this.Canvas.clientWidth, this.Canvas.clientHeight );
+				renderer.render( this.Scene, this.Camera, this.DepthRenderer );
+				renderer.render( this.postProcScene, this.postProcCam ); // render post processing
+				this.DrawingContext.drawImage( renderer.domElement, 0, 0 );
+			},
+
+			OnWindowResize: function() {
+				Common.DefaultWindowResize(this.Canvas, this.Camera);
+
+				this.DepthRenderer.setSize(
+					this.Canvas.clientWidth * Common.Renderer.getPixelRatio(),
+					this.Canvas.clientHeight * Common.Renderer.getPixelRatio()
+				);
+			},
+
+			loadModel: function() {
+			  var loader = new THREE.ColladaLoader();
+	      loader.load(Common.ModelFile, function(collada) {
+					Depth.Model = collada.scene;
+					Depth.Model.traverse(function(child) {
+						if (child instanceof THREE.Mesh) {
+							child.castShadow = false;
+							child.receiveShadow = false;
+						}
+						child.material = Depth.plainMaterial;
+					});
+
+					Depth.Model.scale.x = Editor.Model.scale.y = Editor.Model.scale.z = 10.0;
+					Depth.Model.updateMatrix();
+	  			Depth.Scene.add( Depth.Model );
+				});
+			}
+		};
 		</script>
+
+
+		<script id="depth-postprocessing-vert" type="x-shader/x-vertex">
+			varying vec2 vUv;
+
+			void main() {
+				vUv = uv;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+			}
+		</script>
+		<script id="depth-postprocessing-frag" type="x-shader/x-fragment">
+			#include <packing>
+
+			varying vec2 vUv;
+			uniform sampler2D tDiffuse;
+			uniform sampler2D tDepth;
+			uniform float cameraNear;
+			uniform float cameraFar;
+
+
+			float readDepth( sampler2D depthSampler, vec2 coord ) {
+				float fragCoordZ = texture2D( depthSampler, coord ).x;
+				float viewZ = perspectiveDepthToViewZ( fragCoordZ, cameraNear, cameraFar );
+				return viewZToOrthographicDepth( viewZ, cameraNear, cameraFar );
+			}
+
+			void main() {
+				//vec3 diffuse = texture2D( tDiffuse, vUv ).rgb;
+				float depth = readDepth( tDepth, vUv );
+
+				gl_FragColor.rgb = 1.0 - vec3( depth );
+				gl_FragColor.a = 1.0;
+			}
+		</script>
+
 
 		<script>
 			window.onload = function() { Common.Init() };
