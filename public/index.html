@@ -76,16 +76,14 @@
 	</head>
 	<body>
 
-		<canvas id="c"></canvas>
-
 		<div id="preview-pane">
 			<div id="hires-box">
 				<h2>Hi-Res</h2>
-				<div id="hires" class="scene"></div>
+				<canvas id="hires"></canvas>
 			</div>
 			<div id="depth-box">
 				<h2>Depth</h2>
-				<div id="depth" class="scene"></div>
+				<canvas id="depth"></canvas>
 			</div>
 			<div id="segmentation-masks-box">
 				<h2>Component Masks</h2>
@@ -94,7 +92,7 @@
 				<script id="segmentation-mask-template" type="notjs">
 					<div class="segmentation-mask">
 						<div class="description">'$' Mask</div>
-						<div class="scene"></div>
+						<canvas></canvas>
 					</div>
 				</script>
 				</div>
@@ -103,8 +101,10 @@
 
 		<div id="editor-box">
 			<h2>Editor</h2>
-			<div id="editor" class="scene"></div>
+			<canvas id="editor"></canvas>
 		</div>
+
+		<div id="stats-box"></div>
 
 		<script src="//threejs.org/build/three.js"></script>
 
@@ -114,38 +114,6 @@
 		<script src="//threejs.org/examples/js/libs/stats.min.js"></script>
     <script src="//threejs.org/examples/js/loaders/ColladaLoader.js"></script>
 
-		<script type="x-shader/x-vertex" id="vertexShader">
-
-			varying vec3 vWorldPosition;
-
-			void main() {
-
-				vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
-				vWorldPosition = worldPosition.xyz;
-
-				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-
-			}
-
-		</script>
-		<script type="x-shader/x-fragment" id="fragmentShader">
-
-			uniform vec3 topColor;
-			uniform vec3 bottomColor;
-			uniform float offset;
-			uniform float exponent;
-
-			varying vec3 vWorldPosition;
-
-			void main() {
-
-				float h = normalize( vWorldPosition + offset ).y;
-				gl_FragColor = vec4( mix( bottomColor, topColor, max( pow( max( h , 0.0), exponent ), 0.0 ) ), 1.0 );
-
-			}
-
-		</script>
-
 		<script>
 			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
 		</script>
@@ -153,27 +121,85 @@
 
 		<script>
 
-
 		var Common = {
-			Canvas: document.getElementById( 'c' ),
+			Renderer: null,
+			stats: null,
 
-			init: function() {
-				Editor.init();
+			Init: function() {
+				this.Renderer = new THREE.WebGLRenderer( { antialias: true } );
+				this.Renderer.setPixelRatio( window.devicePixelRatio );
+				this.Renderer.setSize( window.innerWidth, window.innerHeight );
+				this.Renderer.shadowMap.enabled = true;
+				Editor.Init();
+
+				// performance monitor
+				this.stats = new Stats();
+				document.getElementById('stats-box').appendChild(this.stats.dom);
+			},
+
+			Render: function() {
+				this.Renderer.render( Editor.Scene, Editor.Camera );
+			},
+
+			Animate: function() {
+				requestAnimationFrame(this.Animate);
+				this.Render();
+				this.stats.update();
 			}
 		};
 
-		window.onload = Common.init;
 
 		var Editor = {
-			init: function() {
+			Canvas: null,
+			Scene: null,
+			Collada: null,
+			Camera: null,
+			CameraControls: null, // orbit
 
+			Init: function() {
+				this.Canvas = document.getElementById('editor');
+
+				this.Scene = new THREE.Scene();
+				this.Scene.background = new THREE.Color( 0xf0f0f0 );
+
+				this.Camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 10000 );
+				this.Camera.position.set( 0, 250, 1000 );
+				this.Scene.add( this.Camera );
+
+				this.CameraControls = new THREE.OrbitControls( this.Camera, this.Canvas );
+				this.CameraControls.damping = 0.2;
+
+
+				this.Scene.add( new THREE.AmbientLight( 0xf0f0f0 ) );
+				var light = new THREE.SpotLight( 0xffffff, 1.5 );
+				light.position.set( 0, 1500, 200 );
+				light.castShadow = true;
+				light.shadow = new THREE.LightShadow( new THREE.PerspectiveCamera( 70, 1, 200, 2000 ) );
+				light.shadow.bias = -0.000222;
+				light.shadow.mapSize.width = 1024;
+				light.shadow.mapSize.height = 1024;
+				this.Scene.add( light );
+				spotlight = light;
+
+				var planeGeometry = new THREE.PlaneBufferGeometry( 2000, 2000 );
+				planeGeometry.rotateX( - Math.PI / 2 );
+				var planeMaterial = new THREE.ShadowMaterial( { opacity: 0.2 } );
+
+				var plane = new THREE.Mesh( planeGeometry, planeMaterial );
+				plane.position.y = -200;
+				plane.receiveShadow = true;
+				this.Scene.add( plane );
+
+				var planeGrid = new THREE.GridHelper( 2000, 100 );
+				planeGrid.position.y = -199;
+				planeGrid.material.opacity = 0.25;
+				planeGrid.material.transparent = true;
+				this.Scene.add( planeGrid );
 			}
 		};
 
-
-			var camera, scene, renderer, dirLight, dirLightHeper, hemiLight;
-			var mixers = [];
-			var stats;
+/*
+			var camera, scene, dirLight, dirLightHeper, hemiLight;
 
 			var octree;
 			var objects = [];
@@ -202,15 +228,10 @@
 
 			function init() {
 
-				var container = document.getElementById( 'container' );
 
 				camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 5000 );
 				camera.position.set( 0, 0, 250 );
 
-				scene = new THREE.Scene();
-				scene.background = new THREE.Color().setHSL( 0.6, 0, 1 );
-				scene.fog = new THREE.Fog( scene.background, 1, 5000 );
-				scene.add( new THREE.GridHelper( 1000, 10 ) );
 
 
 				// create octree
@@ -344,21 +365,6 @@
 
 
 
-				// controls
-				controls = new THREE.TrackballControls( camera );
-				controls.rotateSpeed = 1.0;
-				controls.zoomSpeed = 1.2;
-				controls.panSpeed = 0.8;
-				controls.noZoom = false;
-				controls.noPan = false;
-				controls.staticMoving = true;
-				controls.dynamicDampingFactor = 0.3;
-
-				// performance monitor
-
-				stats = new Stats();
-				container.appendChild( stats.dom );
-
 				//
 
 				window.addEventListener( 'resize', onWindowResize, false );
@@ -437,6 +443,11 @@
 				// update tracker
 				// console.log( ( useOctree ? 'Octree search' : 'Search without octree' ) + ' using infinite ray from camera found [ ' + numObjects + ' / ' + objects.length + ' ] objects, [ ' + numFaces + ' / ' + totalFaces + ' ] faces, and [ ' + intersections.length + ' ] intersections.');
 			}
+			*/
+		</script>
+
+		<script>
+			window.onload = Common.Init;
 		</script>
 	</body>
 </html>
