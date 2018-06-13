@@ -68,7 +68,8 @@
 			}
 
 			#editor {
-				height: 100%;
+				height: 5in; // FIXME
+				width: 100%;
 			}
 
 
@@ -132,25 +133,35 @@
 				this.Renderer.shadowMap.enabled = true;
 				Editor.Init();
 
-				// performance monitor
 				this.stats = new Stats();
 				document.getElementById('stats-box').appendChild(this.stats.dom);
+
+				window.addEventListener( 'resize', function(ev) { Common.OnWindowResize(ev); }, false );
+
+				this.Animate();
 			},
 
 			Render: function() {
-				this.Renderer.render( Editor.Scene, Editor.Camera );
+				Editor.Render(this.Renderer);
 			},
 
 			Animate: function() {
-				requestAnimationFrame(this.Animate);
+				requestAnimationFrame(function() { Common.Animate(); });
 				this.Render();
 				this.stats.update();
+			},
+
+			OnWindowResize: function(ev) {
+				this.Renderer.setSize( window.innerWidth, window.innerHeight );
+				Editor.OnWindowResize();
+
 			}
 		};
 
 
 		var Editor = {
 			Canvas: null,
+			DrawingContext: null,
 			Scene: null,
 			Collada: null,
 			Camera: null,
@@ -158,11 +169,14 @@
 
 			Init: function() {
 				this.Canvas = document.getElementById('editor');
+				this.Canvas.width = this.Canvas.clientWidth * window.devicePixelRatio;
+				this.Canvas.height = this.Canvas.clientHeight * window.devicePixelRatio;
+				this.DrawingContext = this.Canvas.getContext( '2d' );
 
 				this.Scene = new THREE.Scene();
 				this.Scene.background = new THREE.Color( 0xf0f0f0 );
 
-				this.Camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 10000 );
+				this.Camera = new THREE.PerspectiveCamera( 70, this.Canvas.clientWidth / this.Canvas.clientHeight, 1, 10000 );
 				this.Camera.position.set( 0, 250, 1000 );
 				this.Scene.add( this.Camera );
 
@@ -195,6 +209,19 @@
 				planeGrid.material.opacity = 0.25;
 				planeGrid.material.transparent = true;
 				this.Scene.add( planeGrid );
+			},
+
+			Render: function(renderer) {
+				renderer.setViewport( 0, 0, this.Canvas.clientWidth, this.Canvas.clientHeight );
+				renderer.render( this.Scene, this.Camera );
+				this.DrawingContext.drawImage( renderer.domElement, 0, 0 );
+			},
+
+			OnWindowResize: function() {
+				this.Canvas.width = this.Canvas.clientWidth * window.devicePixelRatio;
+				this.Canvas.height = this.Canvas.clientHeight * window.devicePixelRatio;
+				this.Camera.aspect = this.Canvas.clientWidth / this.Canvas.clientHeight;
+				this.Camera.updateProjectionMatrix();
 			}
 		};
 
@@ -447,7 +474,7 @@
 		</script>
 
 		<script>
-			window.onload = Common.Init;
+			window.onload = function() { Common.Init() };
 		</script>
 	</body>
 </html>
