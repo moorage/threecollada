@@ -64,7 +64,7 @@
 			}
 
 			#preview-pane .canvas-parent {
-				height: 3in;
+				height: 1.5in;
 			}
 
 			#editor {
@@ -185,6 +185,8 @@
 			Scene: null,
 			Model: null,
 			ModelMaterials: {},
+			ModelMeshIndicies: {},
+			ModelCenter: null,
 			SearchOctree: null,
 			SearchRaycaster: null,
 			currentlyHoveredMesh: null,
@@ -200,7 +202,7 @@
 				this.DrawingContext = this.Canvas.getContext( '2d' );
 
 				this.Scene = new THREE.Scene();
-				this.Scene.background = new THREE.Color( 0xf0f0f0 );
+				this.Scene.background = new THREE.Color( 0xcecece );
 
 				this.Camera = new THREE.PerspectiveCamera( 70, this.Canvas.clientWidth / this.Canvas.clientHeight, 1, 10000 );
 				this.Camera.position.set( 450, 450, 450 );
@@ -210,8 +212,8 @@
 				this.CameraControls.damping = 0.2;
 
 
-				this.Scene.add( new THREE.AmbientLight( 0xf0f0f0 ) );
-				var light = new THREE.SpotLight( 0xffffff, 1.5 );
+				this.Scene.add( new THREE.AmbientLight( 0xf0f0f0, 0.5 ) );
+				var light = new THREE.SpotLight( 0xffffff, 1.0 );
 				light.position.set( 0, 1500, 200 );
 				light.castShadow = true;
 				light.shadow = new THREE.LightShadow( new THREE.PerspectiveCamera( 70, 1, 200, 2000 ) );
@@ -275,6 +277,7 @@
 						}
 						this.currentlyHoveredMesh = intersections[0].object;
 						this.currentlyHoveredMesh.material = this.hoverMaterial;
+						Depth.ShowOnlyMeshIndex(this.ModelMeshIndicies[this.currentlyHoveredMesh.uuid]);
 					}
 
 					document.body.style.cursor = 'pointer';
@@ -284,6 +287,7 @@
 					this.currentlyHoveredMesh.material = this.ModelMaterials[this.currentlyHoveredMesh.uuid];
 					this.currentlyHoveredMesh = null;
 					document.body.style.cursor = 'auto';
+					Depth.ShowAllMeshes();
 				}
 			},
 
@@ -300,6 +304,7 @@
 			  var loader = new THREE.ColladaLoader();
 	      loader.load(Common.ModelFile, function(collada) {
 					Editor.Model = collada.scene;
+					var meshIndex = 0;
 					Editor.Model.traverse(function(child) {
 						if (child instanceof THREE.Mesh) {
 							if (child.material.type === "MeshFaceMaterial") {
@@ -307,6 +312,7 @@
 				        child.material = child.material.materials[1];
 				      }
 				      Editor.ModelMaterials[child.uuid] = child.material;
+							Editor.ModelMeshIndicies[child.uuid] = meshIndex++;
 							Editor.SearchOctree.add(child, { useFaces: false });
 							child.castShadow = true;
 							child.receiveShadow = true;
@@ -315,6 +321,7 @@
 
 					Editor.Model.scale.x = Editor.Model.scale.y = Editor.Model.scale.z = 10.0;
 					Editor.Model.updateMatrix();
+					Editor.ModelCenter = (new THREE.Box3().setFromObject(Editor.Model)).getCenter();
 	  			Editor.Scene.add( Editor.Model );
 				});
 			}
@@ -326,28 +333,29 @@
 			DrawingContext: null,
 			Scene: null,
 			Model: null,
+			ModelMeshIndexUuids: {},
 			Camera: null,
 			Renderer: null,
 			DepthRenderer: null,
 			plainMaterial: null,
 			postProcCam: null,
 			postProcScene: null,
+			modelBoundingBox: null,
+			modelCenter: null,
+			cameraHome: {x: 6, y: 6, z: 6},
+			normalizedCameraDirection: null,
 
 			Init: function() {
-
-
-
 				this.Canvas = document.getElementById('depth');
 				this.Canvas.width = this.Canvas.clientWidth * window.devicePixelRatio;
 				this.Canvas.height = this.Canvas.clientHeight * window.devicePixelRatio;
 				this.DrawingContext = this.Canvas.getContext( '2d' );
 
-
 				this.Scene = new THREE.Scene();
-				this.Scene.background = new THREE.Color( 0x000000 );
+				this.Scene.background = new THREE.Color( 0xffffff );
 
-				this.Camera = new THREE.PerspectiveCamera( 70, this.Canvas.clientWidth / this.Canvas.clientHeight, 1, 10000 );
-				this.Camera.position.set( 450, 450, 450 );
+				this.Camera = new THREE.PerspectiveCamera( 70, this.Canvas.clientWidth / this.Canvas.clientHeight, 0.05, 10 );
+				this.Camera.position.set(this.cameraHome.x,this.cameraHome.y,this.cameraHome.z);
 				this.Scene.add( this.Camera );
 
 
@@ -386,9 +394,43 @@
 
 				this.plainMaterial = new THREE.MeshBasicMaterial( { color: 'blue' } );
 				this.loadModel();
+
+				this.normalizedCameraDirection = new THREE.Vector3();
 			},
 
 			Render: function(renderer) {
+				if (this.modelBoundingBox === null) { // no scene yet
+					return;
+				}
+				// this.normalizedCameraDirection.x = Editor.Camera.rotation.x;
+				// this.normalizedCameraDirection.y = Editor.Camera.rotation.y;
+				// this.normalizedCameraDirection.z = Editor.Camera.rotation.z;
+				// this.normalizedCameraDirection.normalize();
+				//
+				// this.Camera.rotation.x = this.normalizedCameraDirection.x;
+				// this.Camera.rotation.y = this.normalizedCameraDirection.y;
+				// this.Camera.rotation.z = this.normalizedCameraDirection.z;
+				//
+				//
+				// this.Camera.position.set(
+				// 	(this.Camera.rotation.x < 0 ? 2*this.modelCenter.x : -2) + -1 * this.Camera.rotation.x,
+				// 	(this.Camera.rotation.y < 0 ? 2*this.modelCenter.y : -2) + -1 * this.Camera.rotation.y,
+				// 	(this.Camera.rotation.z < 0 ? 2*this.modelCenter.z : -2) + -1 * this.Camera.rotation.z
+				// );
+				this.Camera.lookAt(this.modelCenter);
+
+				// console.log(
+				// 	"this.modelCenter.x", this.modelCenter.x,
+				// 	"this.modelCenter.y", this.modelCenter.y,
+				// 	"this.modelCenter.z", this.modelCenter.z,
+				// 	"this.Camera.rotation.x", this.Camera.rotation.x,
+				// 	"this.Camera.rotation.y", this.Camera.rotation.y,
+				// 	"this.Camera.rotation.z", this.Camera.rotation.z,
+				// 	"this.Camera.position.x", this.Camera.position.x,
+				// 	"this.Camera.position.y", this.Camera.position.y,
+				// 	"this.Camera.position.z", this.Camera.position.z
+				// );
+
 				renderer.setViewport( 0, 0, this.Canvas.clientWidth, this.Canvas.clientHeight );
 				renderer.render( this.Scene, this.Camera, this.DepthRenderer );
 				renderer.render( this.postProcScene, this.postProcCam ); // render post processing
@@ -404,20 +446,43 @@
 				);
 			},
 
+			ShowOnlyMeshIndex: function(meshIndex) { // send -1 to show all
+				var showAll = meshIndex < 0;
+				var meshUid = showAll ? "" : this.ModelMeshIndexUuids[meshIndex];
+				Depth.Model.traverse(function(child) {
+					if (child instanceof THREE.Mesh) {
+						if (showAll || child.uuid == meshUid) {
+							child.visible = true;
+						}
+						else {
+							child.visible = false;
+						}
+					}
+				});
+			},
+
+			ShowAllMeshes: function() {
+				this.ShowOnlyMeshIndex(-1);
+			},
+
 			loadModel: function() {
 			  var loader = new THREE.ColladaLoader();
 	      loader.load(Common.ModelFile, function(collada) {
 					Depth.Model = collada.scene;
+					var meshIndex = 0;
 					Depth.Model.traverse(function(child) {
 						if (child instanceof THREE.Mesh) {
 							child.castShadow = false;
 							child.receiveShadow = false;
+							child.material = Depth.plainMaterial;
+							Depth.ModelMeshIndexUuids[meshIndex++] = child.uuid;
 						}
-						child.material = Depth.plainMaterial;
 					});
 
-					Depth.Model.scale.x = Editor.Model.scale.y = Editor.Model.scale.z = 10.0;
+					Depth.Model.scale.x = Depth.Model.scale.y = Depth.Model.scale.z = 0.2;
 					Depth.Model.updateMatrix();
+					Depth.modelBoundingBox = new THREE.Box3().setFromObject(Depth.Model);
+					Depth.modelCenter = Depth.modelBoundingBox.getCenter();
 	  			Depth.Scene.add( Depth.Model );
 				});
 			}
