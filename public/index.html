@@ -26,37 +26,96 @@
 			   min-height: 100%;
 			}
 
-			#c {
-				position: fixed;
-				left: 0px; top: 0px;
-				width: 100%;
-				height: 100%;
-				background-color: #fff;
-				z-index: -1;
-			}
-
 			a {
 				text-decoration: none;
 			}
 
-			a:hover {
-			}
+			a:hover {}
 
 			#editor-box {
+				position:absolute;
 				width: 65%;
-				height: 80%;
-				border:1px solid #eee;
-
+				height: 100%;
+				top:0;
+				left:0;
 			}
 			#preview-pane {
-				float:right;
-				width:34%;
+				position:absolute;
+				width:35%;
+				height:100%;
+				left: 65%;
+				top:0;
+			}
+			#hires-parent,
+			#depth-parent,
+			#editor-parent {
+				width: 100%;
+				height: 100%;
+			}
+			#editor-box h2 {
+				position:absolute;
+				bottom:0;
+				left:0.5em;
+				color:#fff;
+				z-index: 1000;
 			}
 
 			#hires-box,
 			#depth-box {
 				width: 50%;
-				float:left;
+				position:absolute;
+				top:0px;
+				height: 1.5in;
+			}
+			#hires-box {
+				left:0px;
+			}
+			#depth-box {
+				left:50%;
+			}
+			#hires-parent {
+				background-color:gray;
+			}
+			#hires-box h2,
+			#depth-box h2 {
+				position:absolute;
+				bottom:0;
+				left:0.5em;
+				color:#fff;
+				font-size:75%;
+				z-index:1000;
+			}
+			#preview-pane-viewport {
+				width: 100%;
+				height: 100%;
+			}
+			#segmentation-masks-box {
+				padding-top:1.5in;
+				height:100%;
+				position:relative;
+			}
+			#segmentation-masks-box h2 {
+				margin:0;
+				background: linear-gradient(141deg, #c6c6c6 0%, #b7b7b7 75%, #dbdbdb 95%);
+	    	color: white;
+				height:30px;
+				font-size: 14px;
+				line-height:24px;
+				padding:3px 8px;
+				border-top:1px solid #777;
+				position:absolute;
+				top:1.5in;
+				left:0px;
+				width:100%;
+				z-index:1001;
+			}
+
+			#segmentation-masks {
+				width:100%;
+				height:100%;
+				padding-top:30px;
+				overflow:auto;
+				background-color:gray;
 			}
 
 			.scene {
@@ -64,11 +123,14 @@
 			}
 
 			#preview-pane .canvas-parent {
-				height: 1.5in;
+				width:100%;
+				height:100%;
 			}
 
+			#hires,
+			#depth,
 			#editor {
-				height: 5in; // FIXME
+				height: 100%;
 				width: 100%;
 			}
 
@@ -76,6 +138,17 @@
 
 			.segmentation-mask {
 				position:relative;
+				float:left;
+				width:50%;
+				height: 1.5in;
+			}
+			.segmentation-mask .description {
+				color:#fff;
+				position:absolute;
+				top:0.2em;
+				left:0.5em;
+				z-index: 1000;
+				padding-right: 70px;
 			}
 			.not-specified {
 				display:block;
@@ -84,20 +157,27 @@
 				top:45%;
 				left:0;
 				width:100%;
-				color:#fff;
-				z-index:10000;
+				color:#3d3b3b;
+				z-index:1000;
 			}
 			.not-specified.hidden {
 				display:none;
 			}
-			.select-component a {
-				color:blue;
-				font-size:75%;
-				cursor:pointer;
+			.select-component {
+				position:absolute;
+				top: 3px;
+		    right: 5px;
 			}
 
 			.select-component a {
-				display:inline;
+				display:inline-block;
+				color:black;
+				font-weight:bold;
+				font-size:75%;
+				cursor:pointer;
+				border-radius: 5px;
+				padding:3px 5px;
+				background: linear-gradient(141deg, #c6c6c6 0%, #b7b7b7 75%, #dbdbdb 95%);
 			}
 			.select-component a.hidden {
 				display:none;
@@ -108,32 +188,34 @@
 	<body>
 
 		<div id="preview-pane">
-			<div id="hires-box">
-				<h2>Hi-Res</h2>
-				<div id="hires-parent" class="canvas-parent">
-					<canvas id="hires"></canvas>
-				</div>
-			</div>
-			<div id="depth-box">
-				<h2>Depth</h2>
-				<div id="depth-parent" class="canvas-parent">
-					<canvas id="depth"></canvas>
-				</div>
-			</div>
-			<div id="segmentation-masks-box">
-				<h2>Component Masks</h2>
-				<div id="segmentation-masks">
-
-				<script id="segmentation-mask-template" type="notjs">
-					<div class="segmentation-mask">
-						<div class="description">'$' Mask</div>
-						<div class="not-specified hidden">Not yet specified</div>
-						<div class="canvas-parent">
-							<canvas></canvas>
-						</div>
-						<div class="select-component"><a class="select-component-mesh">Select new</a> <a class="select-component-cancel hidden">Cancel</a></div>
+			<div id="preview-pane-viewport">
+				<div id="hires-box">
+					<h2>Hi-Res</h2>
+					<div id="hires-parent">
+						<canvas id="hires"></canvas>
 					</div>
-				</script>
+				</div>
+				<div id="depth-box">
+					<h2>Depth</h2>
+					<div id="depth-parent">
+						<canvas id="depth"></canvas>
+					</div>
+				</div>
+				<div id="segmentation-masks-box">
+					<h2>Components (<span id="component-completion">...</span>)</h2>
+					<div id="segmentation-masks">
+
+					<script id="segmentation-mask-template" type="notjs">
+						<div class="segmentation-mask">
+							<div class="description">$ (Mask)</div>
+							<div class="not-specified hidden">Not yet specified</div>
+							<div class="canvas-parent">
+								<canvas></canvas>
+							</div>
+							<div class="select-component"><a class="select-component-mesh">Select new</a> <a class="select-component-cancel hidden">Cancel</a></div>
+						</div>
+					</script>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -386,6 +468,7 @@
 			modelCenter: null,
 			cameraHome: {x: 6, y: 6, z: 6},
 			normalizedCameraDirection: null,
+			componentCompletionDom: null,
 
 			Init: function() {
 				this.Canvas = document.getElementById('depth');
@@ -564,6 +647,8 @@
 				this.Scene.add( this.Camera );
 
 				this.loadModel();
+				this.componentCompletionDom = document.getElementById("component-completion");
+				this.renderComponentCompletion();
 			},
 
 			newComponentData: function(index, canvas, drawingContext, selectButtonDom, cancelButtonDom, notSpecifiedDom) {
@@ -593,8 +678,23 @@
 				}
 			},
 
+			renderComponentCompletion: function() {
+				if (!this.componentData) {return;}
+				var completed = 0;
+				for (var i = 0; i < this.componentData.length; ++i) {
+					var component = this.componentData[i];
+					if (component.meshUuid == null || component.meshUuid == "") {
+					}
+					else {
+						completed++;
+					}
+				}
+				this.componentCompletionDom.innerText = completed + "/" + this.componentData.length;
+			},
+
 			SelectMeshWithIndex: function(meshIndex) {
 				this.componentData[this.currentlyChangingComponentIndex].meshUuid = this.modelMeshIndexUuids[meshIndex];
+				this.renderComponentCompletion();
 				this.ClearComponentToChange();
 			},
 
