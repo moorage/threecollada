@@ -74,6 +74,34 @@
 
 			canvas { position:relative; height: 100%; width: 100%; }
 
+			.segmentation-mask {
+				position:relative;
+			}
+			.not-specified {
+				display:block;
+				position:absolute;
+				text-align:center;
+				top:45%;
+				left:0;
+				width:100%;
+				color:#fff;
+				z-index:10000;
+			}
+			.not-specified.hidden {
+				display:none;
+			}
+			.select-component a {
+				color:blue;
+				font-size:75%;
+				cursor:pointer;
+			}
+
+			.select-component a {
+				display:inline;
+			}
+			.select-component a.hidden {
+				display:none;
+			}
 
 		</style>
 	</head>
@@ -99,9 +127,11 @@
 				<script id="segmentation-mask-template" type="notjs">
 					<div class="segmentation-mask">
 						<div class="description">'$' Mask</div>
+						<div class="not-specified hidden">Not yet specified</div>
 						<div class="canvas-parent">
 							<canvas></canvas>
 						</div>
+						<div class="select-component"><a class="select-component-mesh">Select new</a> <a class="select-component-cancel hidden">Cancel</a></div>
 					</div>
 				</script>
 				</div>
@@ -143,19 +173,24 @@
 				this.Renderer.shadowMap.enabled = true;
 				Editor.Init();
 				Depth.Init();
+				Components.Init();
 
 				this.stats = new Stats();
 				document.getElementById('stats-box').appendChild(this.stats.dom);
 
 				window.addEventListener( 'resize', function(ev) { Common.OnWindowResize(ev); }, false );
 				Editor.Canvas.addEventListener('mousemove', function(ev) { ev.preventDefault(); Editor.OnMouseMove(ev); }, false );
+				Editor.Canvas.addEventListener('click', function(ev) { Editor.OnClick(ev); }, false );
 
 				this.Animate();
+
+				this.OnWindowResize();
 			},
 
 			Render: function() {
 				Editor.Render(this.Renderer);
 				Depth.Render(this.Renderer);
+				Components.Render(this.Renderer);
 			},
 
 			Animate: function() {
@@ -168,6 +203,7 @@
 				this.Renderer.setSize( window.innerWidth, window.innerHeight );
 				Editor.OnWindowResize();
 				Depth.OnWindowResize();
+				Components.OnWindowResize();
 			},
 
 			DefaultWindowResize: function(canv, cam) {
@@ -258,6 +294,13 @@
 				Common.DefaultWindowResize(this.Canvas, this.Camera);
 			},
 
+			OnClick: function(ev) {
+				if (Components.IsSelectingComponent() && this.currentlyHoveredMesh) {
+					ev.preventDefault();
+					Components.SelectMeshWithIndex(this.ModelMeshIndicies[this.currentlyHoveredMesh.uuid]);
+				}
+			},
+
 			OnMouseMove: function(ev) {
 				this.mousePosition.x = ( (ev.clientX - this.Canvas.offsetLeft) / this.Canvas.clientWidth ) * 2 - 1;
 				this.mousePosition.y = -( (ev.clientY - this.Canvas.offsetTop) / this.Canvas.clientHeight ) * 2 + 1;
@@ -321,21 +364,20 @@
 
 					Editor.Model.scale.x = Editor.Model.scale.y = Editor.Model.scale.z = 10.0;
 					Editor.Model.updateMatrix();
-					Editor.ModelCenter = (new THREE.Box3().setFromObject(Editor.Model)).getCenter();
+					Editor.ModelCenter = new THREE.Vector3();
+					(new THREE.Box3().setFromObject(Editor.Model)).getCenter(Editor.ModelCenter);
 	  			Editor.Scene.add( Editor.Model );
 				});
 			}
 		};
-
 
 		var Depth = {
 			Canvas: null,
 			DrawingContext: null,
 			Scene: null,
 			Model: null,
-			ModelMeshIndexUuids: {},
+			modelMeshIndexUuids: {},
 			Camera: null,
-			Renderer: null,
 			DepthRenderer: null,
 			plainMaterial: null,
 			postProcCam: null,
@@ -352,7 +394,7 @@
 				this.DrawingContext = this.Canvas.getContext( '2d' );
 
 				this.Scene = new THREE.Scene();
-				this.Scene.background = new THREE.Color( 0xffffff );
+				this.Scene.background = new THREE.Color( 0x000000 );
 
 				this.Camera = new THREE.PerspectiveCamera( 70, this.Canvas.clientWidth / this.Canvas.clientHeight, 0.05, 10 );
 				this.Camera.position.set(this.cameraHome.x,this.cameraHome.y,this.cameraHome.z);
@@ -402,34 +444,8 @@
 				if (this.modelBoundingBox === null) { // no scene yet
 					return;
 				}
-				// this.normalizedCameraDirection.x = Editor.Camera.rotation.x;
-				// this.normalizedCameraDirection.y = Editor.Camera.rotation.y;
-				// this.normalizedCameraDirection.z = Editor.Camera.rotation.z;
-				// this.normalizedCameraDirection.normalize();
-				//
-				// this.Camera.rotation.x = this.normalizedCameraDirection.x;
-				// this.Camera.rotation.y = this.normalizedCameraDirection.y;
-				// this.Camera.rotation.z = this.normalizedCameraDirection.z;
-				//
-				//
-				// this.Camera.position.set(
-				// 	(this.Camera.rotation.x < 0 ? 2*this.modelCenter.x : -2) + -1 * this.Camera.rotation.x,
-				// 	(this.Camera.rotation.y < 0 ? 2*this.modelCenter.y : -2) + -1 * this.Camera.rotation.y,
-				// 	(this.Camera.rotation.z < 0 ? 2*this.modelCenter.z : -2) + -1 * this.Camera.rotation.z
-				// );
-				this.Camera.lookAt(this.modelCenter);
 
-				// console.log(
-				// 	"this.modelCenter.x", this.modelCenter.x,
-				// 	"this.modelCenter.y", this.modelCenter.y,
-				// 	"this.modelCenter.z", this.modelCenter.z,
-				// 	"this.Camera.rotation.x", this.Camera.rotation.x,
-				// 	"this.Camera.rotation.y", this.Camera.rotation.y,
-				// 	"this.Camera.rotation.z", this.Camera.rotation.z,
-				// 	"this.Camera.position.x", this.Camera.position.x,
-				// 	"this.Camera.position.y", this.Camera.position.y,
-				// 	"this.Camera.position.z", this.Camera.position.z
-				// );
+				this.Camera.lookAt(this.modelCenter);
 
 				renderer.setViewport( 0, 0, this.Canvas.clientWidth, this.Canvas.clientHeight );
 				renderer.render( this.Scene, this.Camera, this.DepthRenderer );
@@ -448,10 +464,10 @@
 
 			ShowOnlyMeshIndex: function(meshIndex) { // send -1 to show all
 				var showAll = meshIndex < 0;
-				var meshUid = showAll ? "" : this.ModelMeshIndexUuids[meshIndex];
+				var meshUuid = showAll ? "" : this.modelMeshIndexUuids[meshIndex];
 				Depth.Model.traverse(function(child) {
 					if (child instanceof THREE.Mesh) {
-						if (showAll || child.uuid == meshUid) {
+						if (showAll || child.uuid == meshUuid) {
 							child.visible = true;
 						}
 						else {
@@ -475,15 +491,190 @@
 							child.castShadow = false;
 							child.receiveShadow = false;
 							child.material = Depth.plainMaterial;
-							Depth.ModelMeshIndexUuids[meshIndex++] = child.uuid;
+							Depth.modelMeshIndexUuids[meshIndex++] = child.uuid;
 						}
 					});
 
 					Depth.Model.scale.x = Depth.Model.scale.y = Depth.Model.scale.z = 0.2;
 					Depth.Model.updateMatrix();
 					Depth.modelBoundingBox = new THREE.Box3().setFromObject(Depth.Model);
-					Depth.modelCenter = Depth.modelBoundingBox.getCenter();
+					Depth.modelCenter = new THREE.Vector3();
+					Depth.modelBoundingBox.getCenter(Depth.modelCenter);
 	  			Depth.Scene.add( Depth.Model );
+				});
+			}
+		};
+
+		var Components = {
+			AllComponents: ["Seat Lid", "Seat", "Flush Handle", "Small Flush Handle", "Tank", "Tank Cover", "Bowl"],
+			componentData: [],
+			Scene: null,
+			Model: null,
+			modelMeshIndexUuids: {},
+			Camera: null,
+			cameraHome: {x: 5, y: 5, z: 5},
+			hideMaterial: null,
+			maskMaterial: null,
+			currentlyChangingComponentIndex: -1,
+
+			Init: function() {
+				var domTemplate = document.getElementById("segmentation-mask-template").text;
+				var templateParent = document.getElementById("segmentation-masks");
+				for (var i = 0; i < this.AllComponents.length; ++i) {
+					var element = document.createElement( "div" );
+					element.innerHTML = domTemplate.replace( '$', this.AllComponents[i] );
+					var canvas = element.querySelector( "canvas" );
+					var selectButton = element.querySelector( ".select-component a.select-component-mesh" );
+					var cancelButton = element.querySelector( ".select-component a.select-component-cancel");
+					var notSpecifiedMsg = element.querySelector(".not-specified");
+					selectButton.dataset.componentIndex = i;
+					selectButton.addEventListener('click', function(ev) { Components.SetComponentToChange(this.dataset.componentIndex); }, false);
+					cancelButton.addEventListener('click', function(ev) { Components.ClearComponentToChange(); }, false);
+					this.componentData.push(this.newComponentData(
+						i,
+						canvas,
+						canvas.getContext('2d'),
+						selectButton,
+						cancelButton,
+						notSpecifiedMsg
+					));
+					templateParent.appendChild( element );
+				}
+
+				this.Scene = new THREE.Scene();
+				this.Scene.background = new THREE.Color( 0x000000 );
+				this.Scene.add( new THREE.AmbientLight( 0xfefefe, 2 ) );
+
+
+				this.hideMaterial = new THREE.MeshLambertMaterial({
+					color: 0x000000
+				});
+				this.maskMaterial = new THREE.MeshLambertMaterial({
+					color: 0xffffff
+				});
+
+				var firstComponentCanvas = this.componentData[0].canvas;
+				this.Camera = new THREE.PerspectiveCamera(
+					70,
+					firstComponentCanvas.clientWidth / firstComponentCanvas.clientHeight,
+					0.05,
+					20
+				);
+				this.Camera.position.set(this.cameraHome.x,this.cameraHome.y,this.cameraHome.z);
+				this.Scene.add( this.Camera );
+
+				this.loadModel();
+			},
+
+			newComponentData: function(index, canvas, drawingContext, selectButtonDom, cancelButtonDom, notSpecifiedDom) {
+				return {
+					index: index,
+					canvas: canvas,
+					drawingContext: drawingContext,
+					selectButtonDom: selectButtonDom,
+					cancelButtonDom: cancelButtonDom,
+					notSpecifiedDom: notSpecifiedDom,
+					meshUuid: null
+				};
+			},
+
+			SetComponentToChange: function(componentIndex) {
+				this.currentlyChangingComponentIndex = componentIndex;
+
+				for (var i = 0; i < this.componentData.length; ++i) {
+					if (i == this.currentlyChangingComponentIndex) {
+						this.componentData[i].selectButtonDom.classList.add("hidden");
+						this.componentData[i].cancelButtonDom.classList.remove("hidden");
+					}
+					else {
+						this.componentData[i].cancelButtonDom.classList.add("hidden");
+						this.componentData[i].selectButtonDom.classList.remove("hidden");
+					}
+				}
+			},
+
+			SelectMeshWithIndex: function(meshIndex) {
+				this.componentData[this.currentlyChangingComponentIndex].meshUuid = this.modelMeshIndexUuids[meshIndex];
+				this.ClearComponentToChange();
+			},
+
+			ClearComponentToChange: function() {
+				this.SetComponentToChange(-1);
+			},
+
+			IsSelectingComponent: function() {
+				return this.currentlyChangingComponentIndex >= 0;
+			},
+
+			Render: function(renderer) {
+				if (!this.Model) { return; }
+
+				for (var i = 0; i < this.componentData.length; ++i) {
+					var component = this.componentData[i];
+					if (component.meshUuid == null || component.meshUuid == "") {
+						component.notSpecifiedDom.classList.remove("hidden");
+					}
+					else {
+						component.notSpecifiedDom.classList.add("hidden");
+					}
+
+					this.Model.traverse(function(child) {
+						if (child instanceof THREE.Mesh) {
+							if (component.meshUuid == null || component.meshUuid == "") {
+								child.visible = false; // nothing selected, render nothing.
+							}
+							else {
+								child.visible = true;
+								if (child.uuid == component.meshUuid) {
+									child.material = Components.maskMaterial;
+								}
+								else {
+									child.material = Components.hideMaterial;
+								}
+							}
+						}
+					});
+
+					renderer.setViewport( 0, 0, component.canvas.clientWidth, component.canvas.clientHeight );
+					// console.log(component.canvas.clientWidth, component.canvas.clientHeight);
+					renderer.render( this.Scene, this.Camera );
+					component.drawingContext.drawImage( renderer.domElement, 0, 0 );
+				}
+			},
+
+			OnWindowResize: function() {
+				for (var i = 0; i < this.componentData.length; ++i) {
+					var component = this.componentData[i];
+					component.canvas.width = component.canvas.clientWidth * window.devicePixelRatio;
+					component.canvas.height = component.canvas.clientHeight * window.devicePixelRatio;
+					if (i == 0) {
+						this.Camera.aspect = component.canvas.clientWidth / component.canvas.clientHeight;
+						this.Camera.updateProjectionMatrix();
+					}
+				}
+			},
+
+			loadModel: function() {
+			  var loader = new THREE.ColladaLoader();
+	      loader.load(Common.ModelFile, function(collada) {
+					Components.Model = collada.scene;
+					var meshIndex = 0;
+					Components.Model.traverse(function(child) {
+						if (child instanceof THREE.Mesh) {
+							child.castShadow = false;
+							child.receiveShadow = false;
+							child.material = Components.hideMaterial;
+							Components.modelMeshIndexUuids[meshIndex++] = child.uuid;
+						}
+					});
+
+					Components.Model.scale.x = Components.Model.scale.y = Components.Model.scale.z = 0.2;
+					Components.Model.updateMatrix();
+	  			Components.Scene.add( Components.Model );
+
+					var centerToView = new THREE.Vector3();
+					(new THREE.Box3().setFromObject(Components.Model)).getCenter(centerToView);
+					Components.Camera.lookAt(centerToView);
 				});
 			}
 		};
